@@ -4,11 +4,14 @@ import { Jomhuria } from 'next/font/google';
 import AuthProvider from "@/components/SessionProvider";
 import Navbar from "@/components/Navbar";
 import Footer from '@/components/Footer';
+import ClientLayout from '@/components/ClientLayout'; // 🆕
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 const jomhuria = Jomhuria({ weight: '400', subsets: ['latin'], variable: '--font-jomhuria' });
 
-export const metadata = {
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
   title: 'GitWise',
   description: 'Decode GitHub faster',
 };
@@ -28,20 +31,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="absolute inset-0 bg-black/20" />
         </div>
 
-        {/* ✅ Wrap Navbar + main content inside AuthProvider */}
-        <AuthProvider>
-          {/* 🔸 Navbar */}
-          <Navbar />
+        {/* ✅ Splash-aware wrapper */}
+        <ClientLayout>
+          <AuthProvider>
+            <Navbar />
+            <main className="relative z-10 min-h-[80vh]">
+              {children}
+            </main>
+            <Footer />
+          </AuthProvider>
+        </ClientLayout>
 
-          {/* 🔸 Page Content */}
-          <main className="relative z-10 min-h-[80vh]">
-            {children}
-          </main>
-        </AuthProvider>
-
-        {/* 🔸 Footer stays outside, no session needed */}
-        <Footer />
-        
       </body>
     </html>
   );
