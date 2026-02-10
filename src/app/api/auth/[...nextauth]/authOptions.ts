@@ -9,7 +9,6 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
-
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -22,8 +21,10 @@ export const authOptions: NextAuthOptions = {
     LinkedInProvider({
       clientId: process.env.LINKEDIN_CLIENT_ID!,
       clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
+      issuer: 'https://www.linkedin.com',
+      jwks_endpoint: 'https://www.linkedin.com/oauth/openid/jwks',
       authorization: {
-        params: { scope: "r_liteprofile r_emailaddress" },
+        params: { scope: "openid profile email" },
       },
     }),
     CredentialsProvider({
@@ -54,7 +55,6 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Invalid password.");
         }
 
-        // CORRECTED: Return a complete user object that matches the User type
         return {
           id: user.id,
           name: user.name,
@@ -77,67 +77,55 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     async signIn({ user, account, profile }) {
-      // --- NECESSARY MODIFICATION: START ---
-      // Check if this is the user's first sign-in.
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { hasOnboarded: true },
-      });
+      if (!user.id) return false;
 
-      // If they haven't onboarded yet, update their status.
-      if (dbUser && dbUser.hasOnboarded === false) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { hasOnboarded: true },
-        });
-        // Update the user object in memory for the next callbacks (jwt, session)
-        user.hasOnboarded = true;
-      }
-      // --- NECESSARY MODIFICATION: END ---
-
-      // --- ORIGINAL CODE: KEPT AS IS ---
+      // Handle Username Generation for new Social Users
       if (!user.username) {
         let baseUsername = "";
 
-        if (profile?.name) {
-          baseUsername = profile.name.replace(/\s+/g, "").toLowerCase();
-        } else if (profile?.email) {
-          baseUsername = profile.email.split("@")[0].toLowerCase();
+        if (user.name) {
+          baseUsername = user.name.replace(/\s+/g, "").toLowerCase();
+        } else if (user.email) {
+          baseUsername = user.email.split("@")[0].toLowerCase();
         } else {
           baseUsername = `user${Math.floor(Math.random() * 10000)}`;
         }
 
-        let username = baseUsername;
+        let finalUsername = baseUsername;
         let count = 0;
 
-        while (await prisma.user.findUnique({ where: { username } })) {
+        // Ensure username uniqueness
+        while (await prisma.user.findUnique({ where: { username: finalUsername } })) {
           count++;
-          username = `${baseUsername}${count}`;
+          finalUsername = `${baseUsername}${count}`;
         }
 
         await prisma.user.update({
           where: { id: user.id },
-          data: { username },
+          data: { username: finalUsername },
         });
 
-        user.username = username;
+        user.username = finalUsername;
       }
-      // --- ORIGINAL CODE: END ---
 
       return true;
     },
 
-    // UPDATED: Pass all custom properties to the token
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id;
         token.username = user.username;
         token.hasOnboarded = user.hasOnboarded;
       }
+      
+      // Allow manual session updates (useful for onboarding)
+      if (trigger === "update" && session?.hasOnboarded !== undefined) {
+        token.hasOnboarded = session.hasOnboarded;
+      }
+      
       return token;
     },
 
-    // UPDATED: Pass all custom properties from the token to the session
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string;

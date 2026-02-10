@@ -1,50 +1,55 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client";
 
 export async function POST(req: Request) {
   try {
-    const { username, name, email, password } = await req.json();
+    const { email, password, username } = await req.json();
 
-    if (!username || !email || !password) {
+    // 1. Basic validation
+    if (!email || !password || !username) {
       return NextResponse.json(
-        { error: "All required fields must be filled." },
+        { error: "Missing required fields" },
         { status: 400 }
       );
     }
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }, { username }],
-      },
+
+    // 2. Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
     });
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "Username or email already taken." },
+        { error: "User with this email already exists" },
         { status: 400 }
       );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // 3. Hash the password securely
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-
-    const user = await prisma.user.create({
+    // 4. Create the user in the database
+    // We set hasOnboarded to true immediately if they are registering manually
+    const newUser = await prisma.user.create({
       data: {
-        username,
-        name: name || null, 
         email,
+        username,
         password: hashedPassword,
+        role: Role.USER,
+        hasOnboarded: true, 
       },
     });
 
     return NextResponse.json(
-      { message: "User registered successfully", user: { id: user.id, username: user.username, email: user.email } },
+      { message: "User registered successfully", userId: newUser.id },
       { status: 201 }
     );
-  } catch (error) {
-    console.error("Registration error:", error);
+  } catch (error: any) {
+    console.error("Registration Error:", error);
     return NextResponse.json(
-      { error: "Internal server error:" },
+      { error: "Internal server error during registration" },
       { status: 500 }
     );
   }
