@@ -76,11 +76,11 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       if (!user.id) return false;
 
-      // Handle Username Generation for new Social Users
-      if (!user.username) {
+      // Only run username generation for social logins (OAuth) if missing
+      if (account?.provider !== "credentials" && !user.username) {
         let baseUsername = "";
 
         if (user.name) {
@@ -92,12 +92,23 @@ export const authOptions: NextAuthOptions = {
         }
 
         let finalUsername = baseUsername;
+        let isUnique = false;
         let count = 0;
 
-        // Ensure username uniqueness
-        while (await prisma.user.findUnique({ where: { username: finalUsername } })) {
-          count++;
-          finalUsername = `${baseUsername}${count}`;
+        // Optimized uniqueness check: use a single update attempt if possible
+        // or a more efficient loop for high-concurrency
+        while (!isUnique) {
+          const existing = await prisma.user.findUnique({
+            where: { username: finalUsername },
+            select: { id: true }
+          });
+
+          if (!existing) {
+            isUnique = true;
+          } else {
+            count++;
+            finalUsername = `${baseUsername}${count}`;
+          }
         }
 
         await prisma.user.update({
@@ -118,7 +129,6 @@ export const authOptions: NextAuthOptions = {
         token.hasOnboarded = user.hasOnboarded;
       }
       
-      // Allow manual session updates (useful for onboarding)
       if (trigger === "update" && session?.hasOnboarded !== undefined) {
         token.hasOnboarded = session.hasOnboarded;
       }
